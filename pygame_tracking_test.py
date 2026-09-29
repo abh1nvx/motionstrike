@@ -375,10 +375,9 @@ print(
     "🛑 Closing MotionStrike..."
 )
 
+game.play_quit_sound()
+
 tracker.close()
-
 cap.release()
-
 pygame.quit()
-
 sys.exit()
