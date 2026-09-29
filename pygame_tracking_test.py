@@ -1,123 +1,255 @@
-import pygame
 import cv2
+import pygame
 import sys
+import numpy as np
 
 from hand_tracker import HandTracker
 from game import Game
 
 
-pygame.init()
+# ============================================================
+# DISPLAY
+# ============================================================
 
 WIDTH = 1280
 HEIGHT = 720
 
+# ============================================================
+# CAMERA
+# ============================================================
+
+CAMERA_INDEX = 1
+
 CAM_WIDTH = 640
 CAM_HEIGHT = 480
 
-screen = pygame.display.set_mode((WIDTH, HEIGHT))
-pygame.display.set_caption("MOTIONSTRIKE")
+
+# ============================================================
+# PYGAME INITIALIZATION
+# ============================================================
+
+pygame.init()
+
+screen = pygame.display.set_mode(
+    (WIDTH, HEIGHT)
+)
+
+pygame.display.set_caption(
+    "MOTIONSTRIKE"
+)
 
 clock = pygame.time.Clock()
 
-cap = cv2.VideoCapture(0)
 
-cap.set(cv2.CAP_PROP_FRAME_WIDTH, CAM_WIDTH)
-cap.set(cv2.CAP_PROP_FRAME_HEIGHT, CAM_HEIGHT)
+# ============================================================
+# CAMERA INITIALIZATION
+# ============================================================
 
+print(
+    f"📷 Connecting to Logitech BRIO "
+    f"on Camera Index {CAMERA_INDEX}..."
+)
+
+cap = cv2.VideoCapture(
+    CAMERA_INDEX,
+    cv2.CAP_DSHOW
+)
+
+# If DirectShow fails
 if not cap.isOpened():
-    print("❌ Could not open webcam")
+
+    print(
+        "⚠ DirectShow failed. "
+        "Trying default camera backend..."
+    )
+
+    cap.release()
+
+    cap = cv2.VideoCapture(
+        CAMERA_INDEX
+    )
+
+
+# Read first frame BEFORE forcing resolution
+ret, frame = cap.read()
+
+if not ret:
+
+    print(
+        "❌ Failed to read frame from Logitech BRIO."
+    )
+
+    cap.release()
+    pygame.quit()
     sys.exit()
 
-tracker = HandTracker()
+
+print(
+    "✅ Logitech BRIO connected successfully!"
+)
+
+
+# ============================================================
+# HAND TRACKER
+# ============================================================
+
+tracker = HandTracker(
+    "hand_landmarker.task"
+)
+
+
+# ============================================================
+# GAME
+# ============================================================
 
 game = Game(
     CAM_WIDTH,
     CAM_HEIGHT
 )
 
+
+# ============================================================
+# MAIN LOOP
+# ============================================================
+
 running = True
-
-print("🟢 MOTIONSTRIKE GAME STARTED!")
-print("🎯 Hit the target with your index finger.")
-
 
 while running:
 
-    # -----------------------------
-    # Pygame events
-    # -----------------------------
+    # --------------------------------------------------------
+    # DELTA TIME
+    # --------------------------------------------------------
+
+    dt = clock.tick(60) / 1000.0
+
+    # --------------------------------------------------------
+    # EVENTS
+    # --------------------------------------------------------
 
     for event in pygame.event.get():
 
-     if event.type == pygame.QUIT:
+        if event.type == pygame.QUIT:
+
+            running = False
+
+        elif event.type == pygame.KEYDOWN:
+
+            if event.key == pygame.K_ESCAPE:
+
+                running = False
+
+            else:
+
+                game.handle_event(event)
+
+    # --------------------------------------------------------
+    # GAME QUIT STATE
+    # --------------------------------------------------------
+
+    if game.state == "QUIT":
+
         running = False
+        continue
 
-     elif event.type == pygame.KEYDOWN:
-
-        print("KEY PRESSED:", pygame.key.name(event.key))
-
-        if event.key == pygame.K_r:
-
-            if game.game_over:
-                game.restart()
-                print("🔄 GAME RESTARTED!")
-
-    # -----------------------------
-    # Webcam
-    # -----------------------------
+    # --------------------------------------------------------
+    # CAMERA FRAME
+    # --------------------------------------------------------
 
     ret, frame = cap.read()
 
     if not ret:
-        break
 
-    frame = cv2.flip(frame, 1)
+        print(
+            "⚠ Camera frame lost."
+        )
 
+        continue
 
-    # -----------------------------
-    # Hand tracking
-    # -----------------------------
-
-    fingertip = tracker.get_fingertip(frame)
-
-
-    # -----------------------------
-    # Game logic
-    # -----------------------------
-
-    hit = game.update(fingertip)
-
-    if hit:
-        print(f"💥 HIT! Score: {game.score}")
-
-
-    # -----------------------------
-    # Camera → Pygame
-    # -----------------------------
-
-    frame_rgb = cv2.cvtColor(
+    # Mirror camera
+    frame = cv2.flip(
         frame,
-        cv2.COLOR_BGR2RGB
+        1
     )
 
-    frame_rgb = cv2.resize(
-        frame_rgb,
-        (WIDTH, HEIGHT)
+    # Resize to stable working resolution
+    frame = cv2.resize(
+        frame,
+        (
+            CAM_WIDTH,
+            CAM_HEIGHT
+        ),
+        interpolation=cv2.INTER_LINEAR
     )
 
-    camera_surface = pygame.surfarray.make_surface(
-        frame_rgb.swapaxes(0, 1)
-    )
+    # --------------------------------------------------------
+    # HAND TRACKING
+    # --------------------------------------------------------
 
-    screen.blit(
-        camera_surface,
-        (0, 0)
-    )
+    fingertip = None
 
+    if game.state == "PLAYING":
 
-    # -----------------------------
-    # Draw target
-    # -----------------------------
+        fingertip = tracker.get_fingertip(
+            frame
+        )
+
+        game.update(
+            fingertip,
+            dt
+        )
+
+    # --------------------------------------------------------
+    # DRAW CAMERA
+    # --------------------------------------------------------
+
+    if game.state == "PLAYING":
+
+        # Convert BGR -> RGB
+        frame_rgb = cv2.cvtColor(
+            frame,
+            cv2.COLOR_BGR2RGB
+        )
+
+        # Use Pygame image conversion
+        camera_surface = pygame.image.frombuffer(
+            frame_rgb.tobytes(),
+            (
+                CAM_WIDTH,
+                CAM_HEIGHT
+            ),
+            "RGB"
+        )
+
+        # Scale camera once to display
+        camera_surface = pygame.transform.scale(
+            camera_surface,
+            (
+                WIDTH,
+                HEIGHT
+            )
+        )
+
+        screen.blit(
+            camera_surface,
+            (
+                0,
+                0
+            )
+        )
+
+    # --------------------------------------------------------
+    # START / GAME OVER BACKGROUND
+    # --------------------------------------------------------
+
+    else:
+
+        screen.fill(
+            game.BG
+        )
+
+    # --------------------------------------------------------
+    # GAME UI
+    # --------------------------------------------------------
 
     game.draw(
         screen,
@@ -125,46 +257,128 @@ while running:
         HEIGHT / CAM_HEIGHT
     )
 
+    # --------------------------------------------------------
+    # HAND CURSOR
+    # --------------------------------------------------------
 
-    # -----------------------------
-    # Draw fingertip
-    # -----------------------------
+    if (
+        game.state == "PLAYING"
+        and fingertip is not None
+    ):
 
-    if fingertip is not None:
+        fx, fy = fingertip
 
-        x, y = fingertip
-
-        pygame_x = int(
-            x * WIDTH / CAM_WIDTH
+        screen_x = int(
+            fx *
+            WIDTH /
+            CAM_WIDTH
         )
 
-        pygame_y = int(
-            y * HEIGHT / CAM_HEIGHT
+        screen_y = int(
+            fy *
+            HEIGHT /
+            CAM_HEIGHT
         )
 
+        # Outer ring
         pygame.draw.circle(
             screen,
-            (0, 255, 0),
-            (pygame_x, pygame_y),
-            18,
-            3
+            (0, 255, 170),
+            (
+                screen_x,
+                screen_y
+            ),
+            15,
+            2
         )
 
+        # Inner dot
         pygame.draw.circle(
             screen,
-            (0, 255, 0),
-            (pygame_x, pygame_y),
+            (255, 255, 255),
+            (
+                screen_x,
+                screen_y
+            ),
             5
         )
 
+        # Small targeting lines
+        pygame.draw.line(
+            screen,
+            (0, 255, 170),
+            (
+                screen_x - 24,
+                screen_y
+            ),
+            (
+                screen_x - 10,
+                screen_y
+            ),
+            2
+        )
+
+        pygame.draw.line(
+            screen,
+            (0, 255, 170),
+            (
+                screen_x + 10,
+                screen_y
+            ),
+            (
+                screen_x + 24,
+                screen_y
+            ),
+            2
+        )
+
+        pygame.draw.line(
+            screen,
+            (0, 255, 170),
+            (
+                screen_x,
+                screen_y - 24
+            ),
+            (
+                screen_x,
+                screen_y - 10
+            ),
+            2
+        )
+
+        pygame.draw.line(
+            screen,
+            (0, 255, 170),
+            (
+                screen_x,
+                screen_y + 10
+            ),
+            (
+                screen_x,
+                screen_y + 24
+            ),
+            2
+        )
+
+    # --------------------------------------------------------
+    # DISPLAY
+    # --------------------------------------------------------
 
     pygame.display.flip()
 
-    clock.tick(60)
 
+# ============================================================
+# CLEANUP
+# ============================================================
 
-cap.release()
+print(
+    "🛑 Closing MotionStrike..."
+)
+
 tracker.close()
 
+cap.release()
+
 pygame.quit()
+
 sys.exit()
