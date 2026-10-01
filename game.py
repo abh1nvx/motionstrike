@@ -59,8 +59,7 @@ class Game:
         self.leaderboard_file = str(
             Path(__file__).parent / "motionstrike_leaderboard.json"
         )
-        self.leaderboard = []
-        self.save_leaderboard()
+        self.leaderboard = self.load_leaderboard()
 
         # Sound
         self.sounds_enabled = False

@@ -230,6 +230,9 @@ while running:
     if not ret:
         continue
 
+    # Mirror the camera feed to match the user-facing view
+    frame = cv2.flip(frame, 1)
+
     # Resize to stable working resolution for tracking
     frame = cv2.resize(
         frame,
